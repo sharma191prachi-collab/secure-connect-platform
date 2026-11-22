@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Secure Connect - Chat</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 600px; margin: 30px auto; padding: 0 12px; }
+  input, button { padding: 8px; margin: 3px 0; }
+  #messages { border: 1px solid #ccc; height: 280px; overflow-y: auto; padding: 8px; margin: 8px 0; }
+  .sys { color: #888; font-style: italic; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<h2>Secure Connect Chat</h2>
+
+<div id="authBox">
+  <input id="username" placeholder="username (signup only)"><br>
+  <input id="email" placeholder="email"><br>
+  <input id="password" type="password" placeholder="password"><br>
+  <button onclick="signup()">Signup</button>
+  <button onclick="login()">Login</button>
+  <p id="authMsg"></p>
+</div>
+
+<div id="chatBox" class="hidden">
+  <div>Room: <input id="room" value="general"> <button onclick="join()">Join</button></div>
+  <div id="messages"></div>
+  <input id="text" placeholder="Type a message" style="width:70%" onkeydown="if(event.key==='Enter')send()">
+  <button onclick="send()">Send</button>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+let socket, currentRoom = 'general';
+const $ = (id) => document.getElementById(id);
+
+async function call(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+async function signup() {
+  const data = await call('/api/auth/signup', {
+    username: $('username').value, email: $('email').value, password: $('password').value,
+  });
+  $('authMsg').textContent = data.message;
+}
+
+async function login() {
+  const data = await call('/api/auth/login', { email: $('email').value, password: $('password').value });
+  $('authMsg').textContent = data.message;
+  if (!data.token) return;
+
+  $('authBox').classList.add('hidden');
+  $('chatBox').classList.remove('hidden');
+
+  socket = io({ auth: { token: data.token } });
+  socket.on('connect_error', (e) => addLine('Error: ' + e.message, true));
+  socket.on('history', (list) => list.forEach((m) => addLine(`${m.username}: ${m.text}`)));
+  socket.on('chatMessage', (m) => addLine(`${m.username}: ${m.text}`));
+  socket.on('system', (t) => addLine(t, true));
+  join();
+}
+
+function join() {
+  currentRoom = $('room').value.trim() || 'general';
+  $('messages').innerHTML = '';
+  socket.emit('joinRoom', currentRoom);
+}
+
+function send() {
+  const text = $('text').value.trim();
+  if (!text) return;
+  socket.emit('chatMessage', { room: currentRoom, text });
+  $('text').value = '';
+}
+
+function addLine(text, system) {
+  const div = document.createElement('div');
+  if (system) div.className = 'sys';
+  div.textContent = text; // textContent => XSS safe
+  $('messages').appendChild(div);
+  $('messages').scrollTop = $('messages').scrollHeight;
+}
+</script>
+</body>
+</html>
